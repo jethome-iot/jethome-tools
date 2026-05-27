@@ -1,0 +1,468 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2019 Amlogic, Inc. All rights reserved.
+ */
+
+/dts-v1/;
+
+#include "meson-s7.dtsi"
+#include "partition.dtsi"
+
+/ {
+	amlogic-dt-id = "s7_jethub_j310";
+	compatible = "s7_jethub_j310";
+	interrupt-parent = <&gic>;
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	aliases {
+		serial0 = &uart_B;
+		serial1 = &uart_A;
+		serial2 = &uart_C;
+		serial3 = &uart_D;
+		serial4 = &uart_E;
+		i2c0 = &i2c0;
+		i2c1 = &i2c1;
+		i2c2 = &i2c2;
+		i2c3 = &i2c3;
+		i2c4 = &i2c4;
+		spi0 = &spifc;
+		spi1 = &spicc0;
+		tsensor0 = &p_tsensor;
+	};
+
+	memory@00000000 {
+		device_type = "memory";
+		linux,usable-memory = <0x0 0x0 0x0 0x80000000>; /* 2 GB */
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		ramdump_bl33z@00000000 {
+			reg = <0x0 0x0 0x0 0x1800000>; /* 0 ~ 24M */
+			status = "disabled";
+		};
+
+		/* global autoconfigured region for contiguous allocations */
+		ramoops@0x07400000 {
+			compatible = "ramoops";
+			reg = <0x0 0x07400000 0x0 0x00080000>;	/* addr set in uboot */
+			record-size = <0x30000>;
+			console-size = <0x40000>;
+			ftrace-size = <0x0>;
+			pmsg-size = <0x10000>;
+		};
+
+		debug_reserved:linux,iotrace {
+			compatible = "amlogic, iotrace";
+			reg = <0x0 0x04f00000 0x0 0x00100000>;
+			io-size = <0x1b000>;
+			sched-size = <0x2000>;
+			irq-size = <0x1000>;
+			smc-size = <0x1000>;
+			misc-size = <0x1000>;
+		};
+
+		secmon_reserved:linux,secmon {
+			compatible = "shared-dma-pool";
+			no-map;
+			alignment = <0x0 0x100000>;
+			reg = <0x0 0x05000000 0x0 0x2300000>;
+		};
+
+		/*
+		 * fw_cushion: protects 0x07500000+13MB from kernel allocator.
+		 * BL31/BL32/AOCPU on this SoC writes here despite SDK reference
+		 * not declaring it as no-map. Without this, kernel pages at this
+		 * address get silently corrupted, manifesting as buddy allocator
+		 * list crashes early in boot.
+		 */
+		fw_cushion: firmware-cushion@7500000 {
+			no-map;
+			reg = <0x0 0x07500000 0x0 0x00d00000>;
+		};
+
+		logo_reserved:linux,meson-fb {
+			compatible = "shared-dma-pool";
+			reusable;
+			alignment = <0x0 0x400000>;
+			reg = <0x0 0x1f800000 0x0 0x800000>;
+		};
+
+		ion_cma_reserved:linux,ion-dev {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x0>;
+			alignment = <0x0 0x400000>;
+		};
+		ion_fb_reserved:linux,ion-fb {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x0>;
+			alignment = <0x0 0x400000>;
+		};
+		dmaheap_cma_reserved:heap-gfx {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x3000000>;	/* 48 MB */
+			alignment = <0x0 0x400000>;
+		};
+		dmaheap_fb_reserved:heap-fb {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x0>;
+			alignment = <0x0 0x400000>;
+		};
+		di_cma_reserved:linux,di_cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			alignment = <0x0 0x400000>;
+		};
+
+		ppmgr_reserved:linux,ppmgr {
+			compatible = "shared-dma-pool";
+			size = <0x0 0x0>;
+		};
+
+		codec_mm_cma:linux,codec_mm_cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0xd000000>;	/* 208 MB */
+			alignment = <0x0 0x400000>;
+			linux,contiguous-region;
+		};
+
+		codec_mm_reserved:linux,codec_mm_reserved {
+			compatible = "amlogic, codec-mm-reserved";
+			size = <0x0 0x0>;
+			alignment = <0x0 0x100000>;
+		};
+
+		secure_vdec_reserved:linux,secure_vdec_reserved {
+			compatible = "amlogic, secure-vdec-reserved";
+			no-map;
+			size = <0x0 0x1000000>;	/* 16 MB no-map */
+			alignment = <0x0 0x100000>;
+		};
+
+		vdin1_cma_reserved:linux,vdin1_cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x00c00000>;	/* 12 MB */
+			alignment = <0x0 0x400000>;
+		};
+
+		linux,cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			/*
+			 * 32MB instead of SDK reference 8MB.
+			 * On this board MMC/USB drivers exhaust 8MB pool at ~0.3s
+			 * with -ENOMEM (verified in boot log), which leads to
+			 * downstream allocator corruption. Keep larger pool.
+			 */
+			size = <0x0 0x2000000>;
+			alignment = <0x0 0x400000>;
+			linux,cma-default;
+			alloc-ranges = <0x0 0x0 0x0 0x30000000>;
+		};
+	};
+
+	thermal-zones {
+		soc_thermal: soc_thermal {
+			polling-delay = <1000>;
+			polling-delay-passive = <100>;
+			sustainable-power = <1160>;
+			thermal-sensors = <&p_tsensor 0>;
+			trips {
+				pswitch_on: trip-point@0 {
+					temperature = <85000>;
+					hysteresis = <5000>;
+					type = "passive";
+				};
+				pcontrol: trip-point@1 {
+					temperature = <95000>;
+					hysteresis = <5000>;
+					type = "passive";
+				};
+				phot: trip-point@2 {
+					temperature = <55000>;
+					hysteresis = <5000>;
+					type = "hot";
+				};
+				pcritical: trip-point@3 {
+					temperature = <105000>;
+					hysteresis = <1000>;
+					type = "critical";
+				};
+			};
+
+			cooling-maps {
+				cpufreq_cooling_map {
+					trip = <&pcontrol>;
+					cooling-device = <&CPU0 0 6>;
+					contribution = <1024>;
+				};
+				gpufreq_cooling_map {
+					trip = <&pcontrol>;
+					cooling-device = <&gpu 0 3>;
+					contribution = <1024>;
+				};
+				ddr0_cooling_map {
+					trip = <&phot>;
+					cooling-device = <&ddr_cool0 0 12>;
+					contribution = <1024>;
+				};
+			};
+		};
+	};/*thermal zone end*/
+
+	vin_12v_reg: fixedregulator@12v {
+		compatible = "regulator-fixed";
+		regulator-name = "12V";
+		regulator-min-microvolt = <12000000>;
+		regulator-max-microvolt = <12000000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	vccao_5v_reg: fixedregulator@vccao_5v {
+		vin-supply = <&vin_12v_reg>;
+		compatible = "regulator-fixed";
+		regulator-name = "VCCAO_5V";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	vcc5v_reg: fixedregulator@vcc5v {
+		vin-supply = <&vccao_5v_reg>;
+		compatible = "regulator-fixed";
+		regulator-name = "VCC5V";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	vddq_reg: fixedregulator@vddq {
+		compatible = "regulator-fixed";
+		vin-supply = <&vin_12v_reg>;
+		regulator-name = "VDDQ";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	vddao_3v3_reg: fixedregulator@vddao_3v3 {
+		vin-supply = <&vin_12v_reg>;
+		compatible = "regulator-fixed";
+		regulator-name = "VDDAO_3V3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	vdd3v3_soc_reg: fixedregulator@vdd3v3_soc {
+		vin-supply = <&vin_12v_reg>;
+		compatible = "regulator-fixed";
+		regulator-name = "VDD3V3_SOC";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	vdd1v8_dcdc_reg: fixedregulator@vdd1v8_dcdc {
+		compatible = "regulator-fixed";
+		vin-supply = <&vin_12v_reg>;
+		regulator-name = "VDD1V8_DCDC";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	vdd_ao1v8_ldo_reg: fixedregulator@vdd_ao1v8_ldo {
+		compatible = "regulator-fixed";
+		vin-supply = <&vddao_3v3_reg>;
+		regulator-name = "VDD_AO18_LDO";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
+	ddr4_2v5_reg: fixedregulator@ddr4_2v5 {
+		vin-supply = <&vddao_3v3_reg>;
+		compatible = "regulator-fixed";
+		regulator-name = "DDR4_2.5V";
+		regulator-min-microvolt = <2500000>;
+		regulator-max-microvolt = <2500000>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+};
+
+&i2c3 {
+	status = "okay";
+	pinctrl-names = "default","sleep";
+	pinctrl-0=<&i2c3_pins2>;
+	pinctrl-1 = <&i2c3_pins2_sleep>;
+	clock-frequency = <300000>;
+};
+
+&i2c4 {
+	status = "disabled";
+	pinctrl-names = "default","sleep";
+	pinctrl-0=<&i2c4_pins3>;
+	pinctrl-1 = <&i2c4_pins3_sleep>;
+	clock-frequency = <300000>;
+};
+
+&i2c1 {
+	status = "disabled";
+	pinctrl-names = "default","sleep";
+	pinctrl-0=<&i2c1_pins2>;
+	pinctrl-1 = <&i2c1_pins2_sleep>;
+	clock-frequency = <300000>; /* default 100k */
+};
+
+&vddcpu0 {
+	status = "okay";
+};
+
+&periphs_pinctrl {
+	dvb_s_ts0_pins: dvb_s_ts0_pins {
+		tsin_a {
+			groups = "tsin_a_sop",
+				"tsin_a_valid",
+				"tsin_a_clk",
+				"tsin_a_din0";
+			function = "tsin_a";
+		};
+	};
+
+	dvb_pins_sleep:dvb_pins_sleep {
+		mux {
+			groups = "GPIOZ_0",
+				"GPIOZ_1",
+				"GPIOZ_2",
+				"GPIOZ_3";
+			function = "gpio_periphs";
+		};
+	};
+}; /* end of periphs_pinctrl */
+
+&usb_phy20 {
+	status = "okay";
+	portnum = <1>;
+};
+
+&usb_phy21 {
+	status = "okay";
+	portnum = <1>;
+};
+
+&usb_phy30 {
+	status = "okay";
+	portnum = <0>;
+};
+
+&usb_phy31 {
+	status = "okay";
+	portnum = <0>;
+};
+
+&crg_otg {
+	status = "okay";
+	controller-type = <1>; /* 0~3: normal, host, device, otg */
+};
+
+&crg_drd {
+	status = "okay";
+};
+
+&crg_udc {
+	status = "okay";
+};
+
+&crg {
+	status = "okay";
+};
+
+/* SD card */
+&sd_emmc_b {
+	status = "okay";
+	pinctrl-0 = <&sdcard_pins>;
+	pinctrl-1 = <&sdcard_clk_gate_pins>;
+	pinctrl-2 = <&sd_1bit_pins>;
+	pinctrl-names = "sd_default",
+			"clk-gate",
+			"sd_1bit_pins";
+	bus-width = <4>;
+	cap-sd-highspeed;
+	max-frequency = <200000000>;
+	disable-wp;
+
+	cd-gpios = <&gpio GPIOC_6 GPIO_ACTIVE_HIGH>;
+};
+
+&sd_emmc_c {
+	status = "okay";
+	pinctrl-0 = <&emmc_pins>;
+	pinctrl-1 = <&emmc_clk_gate_pins>;
+	pinctrl-names = "default", "clk-gate";
+
+	bus-width = <8>;
+	cap-mmc-highspeed;
+	max-frequency = <50000000>;
+	non-removable;
+	disable-wp;
+};
+
+&ethmac {
+	pinctrl-0 = <&eth_led_pins>;
+	pinctrl-names = "default";
+	status = "okay";
+	phy-handle = <&internal_ephy>;
+	phy-mode = "rmii";
+};
+
+&spicc0 {
+	status = "disabled";
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&spicc0_pins_z>;
+	pinctrl-1 = <&spicc0_pins_z_sleep>;
+};
+
+&pwm_e {
+	pinctrl-0 = <&pwm_e_pins1>;
+	pinctrl-1 = <&pwm_e_pins1_sleep>;
+	pinctrl-names = "default","sleep";
+	status = "okay";
+};
+
+&uart_A {
+	status = "okay";
+	uart-has-rtscts;
+};
+
+&codec_mm {
+	status = "disabled";
+};
+
+&fb {
+	status = "disabled";
+};
+
+&gpu {
+	status = "disabled";
+};
+
