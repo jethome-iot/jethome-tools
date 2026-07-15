@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
- * Copyright (c) 2019 Amlogic, Inc. All rights reserved.
+ * Copyright (c) 2026 JetHome
  */
 
 /dts-v1/;
 
 #include "meson-s7.dtsi"
-#include "partition.dtsi"
+#include "partition_normal_linux.dtsi"
 
 / {
-	amlogic-dt-id = "s7_jethub_j310";
-	compatible = "s7_jethub_j310";
+	amlogic-dt-id = "s7_s905y5_j310";
+	compatible = "s7_s905y5_j310";
 	interrupt-parent = <&gic>;
 	#address-cells = <2>;
 	#size-cells = <2>;
@@ -31,9 +31,14 @@
 		tsensor0 = &p_tsensor;
 	};
 
-	memory@00000000 {
+	chosen {
+		stdout-path = "serial0:921600n8";
+	};
+
+	/* 4GiB RAM */
+	memory@0 {
 		device_type = "memory";
-		linux,usable-memory = <0x0 0x0 0x0 0x80000000>; /* 2 GB */
+		reg = <0x0 0x0 0x1 0x00000000>;
 	};
 
 	reserved-memory {
@@ -56,16 +61,6 @@
 			pmsg-size = <0x10000>;
 		};
 
-		debug_reserved:linux,iotrace {
-			compatible = "amlogic, iotrace";
-			reg = <0x0 0x04f00000 0x0 0x00100000>;
-			io-size = <0x1b000>;
-			sched-size = <0x2000>;
-			irq-size = <0x1000>;
-			smc-size = <0x1000>;
-			misc-size = <0x1000>;
-		};
-
 		secmon_reserved:linux,secmon {
 			compatible = "shared-dma-pool";
 			no-map;
@@ -73,85 +68,10 @@
 			reg = <0x0 0x05000000 0x0 0x2300000>;
 		};
 
-		/*
-		 * fw_cushion: protects 0x07500000+13MB from kernel allocator.
-		 * BL31/BL32/AOCPU on this SoC writes here despite SDK reference
-		 * not declaring it as no-map. Without this, kernel pages at this
-		 * address get silently corrupted, manifesting as buddy allocator
-		 * list crashes early in boot.
-		 */
-		fw_cushion: firmware-cushion@7500000 {
-			no-map;
-			reg = <0x0 0x07500000 0x0 0x00d00000>;
-		};
-
-		logo_reserved:linux,meson-fb {
-			compatible = "shared-dma-pool";
-			reusable;
-			alignment = <0x0 0x400000>;
-			reg = <0x0 0x1f800000 0x0 0x800000>;
-		};
-
-		ion_cma_reserved:linux,ion-dev {
-			compatible = "shared-dma-pool";
-			reusable;
-			size = <0x0 0x0>;
-			alignment = <0x0 0x400000>;
-		};
-		ion_fb_reserved:linux,ion-fb {
-			compatible = "shared-dma-pool";
-			reusable;
-			size = <0x0 0x0>;
-			alignment = <0x0 0x400000>;
-		};
 		dmaheap_cma_reserved:heap-gfx {
 			compatible = "shared-dma-pool";
 			reusable;
-			size = <0x0 0x3000000>;	/* 48 MB */
-			alignment = <0x0 0x400000>;
-		};
-		dmaheap_fb_reserved:heap-fb {
-			compatible = "shared-dma-pool";
-			reusable;
-			size = <0x0 0x0>;
-			alignment = <0x0 0x400000>;
-		};
-		di_cma_reserved:linux,di_cma {
-			compatible = "shared-dma-pool";
-			reusable;
-			alignment = <0x0 0x400000>;
-		};
-
-		ppmgr_reserved:linux,ppmgr {
-			compatible = "shared-dma-pool";
-			size = <0x0 0x0>;
-		};
-
-		codec_mm_cma:linux,codec_mm_cma {
-			compatible = "shared-dma-pool";
-			reusable;
-			size = <0x0 0xd000000>;	/* 208 MB */
-			alignment = <0x0 0x400000>;
-			linux,contiguous-region;
-		};
-
-		codec_mm_reserved:linux,codec_mm_reserved {
-			compatible = "amlogic, codec-mm-reserved";
-			size = <0x0 0x0>;
-			alignment = <0x0 0x100000>;
-		};
-
-		secure_vdec_reserved:linux,secure_vdec_reserved {
-			compatible = "amlogic, secure-vdec-reserved";
-			no-map;
-			size = <0x0 0x1000000>;	/* 16 MB no-map */
-			alignment = <0x0 0x100000>;
-		};
-
-		vdin1_cma_reserved:linux,vdin1_cma {
-			compatible = "shared-dma-pool";
-			reusable;
-			size = <0x0 0x00c00000>;	/* 12 MB */
+			size = <0x0 0x3000000>;	/* 48 MB for DRM/Mali GPU buffers */
 			alignment = <0x0 0x400000>;
 		};
 
@@ -159,15 +79,49 @@
 			compatible = "shared-dma-pool";
 			reusable;
 			/*
-			 * 32MB instead of SDK reference 8MB.
-			 * On this board MMC/USB drivers exhaust 8MB pool at ~0.3s
-			 * with -ENOMEM (verified in boot log), which leads to
-			 * downstream allocator corruption. Keep larger pool.
+			 * 64MB default CMA. 32MB worked for USB/MMC alone but
+			 * Mali GPU + DRM need more contiguous memory. SDK
+			 * reference 8MB is too small even without GPU - MMC/USB
+			 * exhausted it at ~0.3s with -ENOMEM, causing downstream
+			 * allocator corruption.
 			 */
-			size = <0x0 0x2000000>;
+			size = <0x0 0x4000000>;
 			alignment = <0x0 0x400000>;
 			linux,cma-default;
 			alloc-ranges = <0x0 0x0 0x0 0x30000000>;
+		};
+
+		ion_cma_reserved:linux,ion-dev {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x0>;
+		};
+		ion_fb_reserved:linux,ion-fb {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x0>;
+		};
+		logo_reserved:linux,meson-fb {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x0>;
+		};
+		codec_mm_cma:linux,codec_mm_cma {
+			compatible = "shared-dma-pool";
+			reusable;
+			size = <0x0 0x0>;
+		};
+		codec_mm_reserved:linux,codec_mm_reserved {
+			compatible = "amlogic, codec-mm-reserved";
+			size = <0x0 0x0>;
+		};
+		secure_vdec_reserved:linux,secure_vdec_reserved {
+			compatible = "amlogic, secure-vdec-reserved";
+			size = <0x0 0x0>;
+		};
+		ppmgr_reserved:linux,ppmgr {
+			compatible = "shared-dma-pool";
+			size = <0x0 0x0>;
 		};
 	};
 
@@ -177,24 +131,15 @@
 			polling-delay-passive = <100>;
 			sustainable-power = <1160>;
 			thermal-sensors = <&p_tsensor 0>;
+
 			trips {
-				pswitch_on: trip-point@0 {
-					temperature = <85000>;
+				pcontrol: trip-point@0 {
+					temperature = <75000>;
 					hysteresis = <5000>;
 					type = "passive";
 				};
-				pcontrol: trip-point@1 {
-					temperature = <95000>;
-					hysteresis = <5000>;
-					type = "passive";
-				};
-				phot: trip-point@2 {
-					temperature = <55000>;
-					hysteresis = <5000>;
-					type = "hot";
-				};
-				pcritical: trip-point@3 {
-					temperature = <105000>;
+				pcritical: trip-point@1 {
+					temperature = <100000>;
 					hysteresis = <1000>;
 					type = "critical";
 				};
@@ -203,64 +148,23 @@
 			cooling-maps {
 				cpufreq_cooling_map {
 					trip = <&pcontrol>;
-					cooling-device = <&CPU0 0 6>;
-					contribution = <1024>;
-				};
-				gpufreq_cooling_map {
-					trip = <&pcontrol>;
-					cooling-device = <&gpu 0 3>;
-					contribution = <1024>;
-				};
-				ddr0_cooling_map {
-					trip = <&phot>;
-					cooling-device = <&ddr_cool0 0 12>;
+					cooling-device = <&CPU0 0 7>;
 					contribution = <1024>;
 				};
 			};
 		};
 	};/*thermal zone end*/
 
-	vin_12v_reg: fixedregulator@12v {
+	vddio_boot: regulator-vddio-boot {
 		compatible = "regulator-fixed";
-		regulator-name = "12V";
-		regulator-min-microvolt = <12000000>;
-		regulator-max-microvolt = <12000000>;
+		regulator-name = "VDDIO_BOOT";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
 		regulator-boot-on;
 		regulator-always-on;
 	};
 
-	vccao_5v_reg: fixedregulator@vccao_5v {
-		vin-supply = <&vin_12v_reg>;
-		compatible = "regulator-fixed";
-		regulator-name = "VCCAO_5V";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
-	vcc5v_reg: fixedregulator@vcc5v {
-		vin-supply = <&vccao_5v_reg>;
-		compatible = "regulator-fixed";
-		regulator-name = "VCC5V";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
-	vddq_reg: fixedregulator@vddq {
-		compatible = "regulator-fixed";
-		vin-supply = <&vin_12v_reg>;
-		regulator-name = "VDDQ";
-		regulator-min-microvolt = <1200000>;
-		regulator-max-microvolt = <1200000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
-	vddao_3v3_reg: fixedregulator@vddao_3v3 {
-		vin-supply = <&vin_12v_reg>;
+	vddao_3v3: regulator-vddao-3v3 {
 		compatible = "regulator-fixed";
 		regulator-name = "VDDAO_3V3";
 		regulator-min-microvolt = <3300000>;
@@ -269,96 +173,98 @@
 		regulator-always-on;
 	};
 
-	vdd3v3_soc_reg: fixedregulator@vdd3v3_soc {
-		vin-supply = <&vin_12v_reg>;
-		compatible = "regulator-fixed";
-		regulator-name = "VDD3V3_SOC";
-		regulator-min-microvolt = <3300000>;
+	/*
+	 * SD card IO voltage, switched via TPS2116 power mux:
+	 *   PR1 = HIGH -> 3.3V (default speed / init)
+	 *   PR1 = LOW  -> 1.8V (UHS-I signaling)
+	 * PR1 is driven by GPIOH_6
+	 */
+	vqmmc_sd: regulator-vqmmc-sd {
+		compatible = "regulator-gpio";
+		regulator-name = "VQMMC_SD";
+		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <3300000>;
+
+		gpios = <&gpio GPIOH_6 GPIO_ACTIVE_HIGH>;
+		states = <3300000 1>,	/* GPIOH_6 HIGH -> PR1 HIGH -> 3.3V */
+			 <1800000 0>;	/* GPIOH_6 LOW  -> PR1 LOW  -> 1.8V */
+
 		regulator-boot-on;
-		regulator-always-on;
+	};
+	gpio-keys {
+		compatible = "gpio-keys-polled";
+		poll-interval = <100>;
+
+		button_up {
+			label = "Joystick Up";
+			gpios = <&exp24 8 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_UP>;
+			debounce-interval = <10>;
+		};
+
+		button_down {
+			label = "Joystick Down";
+			gpios = <&exp24 9 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_DOWN>;
+			debounce-interval = <10>;
+		};
+
+		button_left {
+			label = "Joystick Left";
+			gpios = <&exp24 10 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_LEFT>;
+			debounce-interval = <10>;
+		};
+
+		button_right {
+			label = "Joystick Right";
+			gpios = <&exp24 11 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_RIGHT>;
+			debounce-interval = <10>;
+		};
+
+		button_center {
+			label = "Joystick Center";
+			gpios = <&exp24 12 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_ENTER>;
+			debounce-interval = <10>;
+		};
+
+		button_home {
+			label = "Joystick Home";
+			gpios = <&exp24 13 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_HOME>;
+			debounce-interval = <10>;
+		};
+
+		button_back {
+			label = "Joystick Back";
+			gpios = <&exp24 14 GPIO_ACTIVE_HIGH>;
+			linux,code = <KEY_BACK>;
+			debounce-interval = <10>;
+		};
 	};
 
-	vdd1v8_dcdc_reg: fixedregulator@vdd1v8_dcdc {
-		compatible = "regulator-fixed";
-		vin-supply = <&vin_12v_reg>;
-		regulator-name = "VDD1V8_DCDC";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		regulator-boot-on;
-		regulator-always-on;
+	leds {
+		compatible = "gpio-leds";
+
+		led_red: led-red {
+			label = "jethub:red:fault";
+			gpios = <&gpio GPIOZ_5 GPIO_ACTIVE_HIGH>;
+			default-state = "off";
+		};
+
+		led_green: led-green {
+			label = "jethub:green:heartbeat";
+			gpios = <&gpio GPIOZ_4 GPIO_ACTIVE_HIGH>;
+			linux,default-trigger = "heartbeat";
+		};
 	};
-
-	vdd_ao1v8_ldo_reg: fixedregulator@vdd_ao1v8_ldo {
-		compatible = "regulator-fixed";
-		vin-supply = <&vddao_3v3_reg>;
-		regulator-name = "VDD_AO18_LDO";
-		regulator-min-microvolt = <1800000>;
-		regulator-max-microvolt = <1800000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-
-	ddr4_2v5_reg: fixedregulator@ddr4_2v5 {
-		vin-supply = <&vddao_3v3_reg>;
-		compatible = "regulator-fixed";
-		regulator-name = "DDR4_2.5V";
-		regulator-min-microvolt = <2500000>;
-		regulator-max-microvolt = <2500000>;
-		regulator-boot-on;
-		regulator-always-on;
-	};
-};
-
-&i2c3 {
-	status = "okay";
-	pinctrl-names = "default","sleep";
-	pinctrl-0=<&i2c3_pins2>;
-	pinctrl-1 = <&i2c3_pins2_sleep>;
-	clock-frequency = <300000>;
-};
-
-&i2c4 {
-	status = "disabled";
-	pinctrl-names = "default","sleep";
-	pinctrl-0=<&i2c4_pins3>;
-	pinctrl-1 = <&i2c4_pins3_sleep>;
-	clock-frequency = <300000>;
-};
-
-&i2c1 {
-	status = "disabled";
-	pinctrl-names = "default","sleep";
-	pinctrl-0=<&i2c1_pins2>;
-	pinctrl-1 = <&i2c1_pins2_sleep>;
-	clock-frequency = <300000>; /* default 100k */
 };
 
 &vddcpu0 {
 	status = "okay";
 };
-
-&periphs_pinctrl {
-	dvb_s_ts0_pins: dvb_s_ts0_pins {
-		tsin_a {
-			groups = "tsin_a_sop",
-				"tsin_a_valid",
-				"tsin_a_clk",
-				"tsin_a_din0";
-			function = "tsin_a";
-		};
-	};
-
-	dvb_pins_sleep:dvb_pins_sleep {
-		mux {
-			groups = "GPIOZ_0",
-				"GPIOZ_1",
-				"GPIOZ_2",
-				"GPIOZ_3";
-			function = "gpio_periphs";
-		};
-	};
-}; /* end of periphs_pinctrl */
 
 &usb_phy20 {
 	status = "okay";
@@ -403,12 +309,11 @@
 	pinctrl-0 = <&sdcard_pins>;
 	pinctrl-1 = <&sdcard_clk_gate_pins>;
 	pinctrl-2 = <&sd_1bit_pins>;
-	pinctrl-names = "sd_default",
-			"clk-gate",
-			"sd_1bit_pins";
+	pinctrl-names = "sd_default", "clk-gate", "sd_1bit_pins";
+
 	bus-width = <4>;
 	cap-sd-highspeed;
-	max-frequency = <200000000>;
+	max-frequency = <50000000>;
 	disable-wp;
 
 	cd-gpios = <&gpio GPIOC_6 GPIO_ACTIVE_HIGH>;
@@ -416,15 +321,106 @@
 
 &sd_emmc_c {
 	status = "okay";
-	pinctrl-0 = <&emmc_pins>;
+	pinctrl-0 = <&emmc_pins>, <&emmc_ds_pins>;
 	pinctrl-1 = <&emmc_clk_gate_pins>;
 	pinctrl-names = "default", "clk-gate";
 
 	bus-width = <8>;
 	cap-mmc-highspeed;
-	max-frequency = <50000000>;
+	mmc-hs400-1_8v;
+	max-frequency = <200000000>;
 	non-removable;
 	disable-wp;
+};
+
+&i2c2 {
+	status = "okay";
+    pinctrl-names = "default";
+    pinctrl-0 = <&i2c2_pins2>;
+    clock-frequency = <400000>;
+
+	/* EEPROM on base board */
+	eeprom_base: eeprom@56 {
+		compatible = "atmel,24c64";
+		reg = <0x56>;
+		pagesize = <0x20>;
+		label = "eeprom_base";
+		address-width = <0x10>;
+		vcc-supply = <&vddao_3v3>;
+	};
+
+
+
+	exp21: gpio@21 {
+		compatible = "ti,tca6408";
+		reg = <0x21>;
+		gpio-controller;
+		#gpio-cells = <2>;
+
+		//Add later
+		//gpio-line-names =
+	};
+};
+
+&i2c3 {
+    status = "okay";
+    pinctrl-names = "default";
+    pinctrl-0 = <&i2c3_pins2>;
+    clock-frequency = <200000>;
+
+	rtc: rtc@51 {
+		status = "okay";
+		compatible = "nxp,pcf8563";
+		reg = <0x51>;
+		wakeup-source;
+	};
+
+	/* Crypto */
+	atecc608a: crypto@60 {
+		compatible = "atmel,atecc508a";
+		reg = <0x60>;
+	};
+
+	/* EEPROM on cpu carrier board */
+	eeprom_carrier: eeprom@56 {
+		compatible = "atmel,24c64";
+		reg = <0x56>;
+		pagesize = <0x20>;
+		label = "eeprom_carrier";
+		address-width = <0x10>;
+		vcc-supply = <&vddao_3v3>;
+	};
+
+	/* temperature sensors */
+	temp: tmp102@48 {
+		compatible = "ti,tmp102";
+		reg = <0x48>;
+	};
+
+	ssd1306: oled@3c {
+		compatible = "solomon,ssd1306fb-i2c";
+		reg = <0x3c>;
+		solomon,width = <128>;
+		solomon,height = <64>;
+		solomon,com-invdir;
+		solomon,page-offset = <0>;
+		solomon,dclk-div = <1>;
+		solomon,dclk-frq = <15>;
+		solomon,prechargep1 = <1>;
+		solomon,prechargep2 = <15>;
+	};
+
+	exp24: gpio@24 {
+		compatible = "nxp,pca9535";
+		reg = <0x24>;
+		gpio-controller;
+		#gpio-cells = <2>;
+
+		gpio-line-names =
+			"", "", "", "", "", "", "", "",
+			"JOY_UP", "JOY_DOWN", "JOY_LEFT", "JOY_RIGHT",
+			"JOY_CENTER", "JOY_HOME", "JOY_BACK", "";
+	};
 };
 
 &ethmac {
@@ -433,13 +429,6 @@
 	status = "okay";
 	phy-handle = <&internal_ephy>;
 	phy-mode = "rmii";
-};
-
-&spicc0 {
-	status = "disabled";
-	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&spicc0_pins_z>;
-	pinctrl-1 = <&spicc0_pins_z_sleep>;
 };
 
 &pwm_e {
@@ -453,16 +442,3 @@
 	status = "okay";
 	uart-has-rtscts;
 };
-
-&codec_mm {
-	status = "disabled";
-};
-
-&fb {
-	status = "disabled";
-};
-
-&gpu {
-	status = "disabled";
-};
-
