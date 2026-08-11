@@ -22,6 +22,9 @@ if [[ "$2" == "h1" || "$2" == "j80" ]]; then
 elif [[ "$2" == "d1" || "$2" == "j100" ]]; then
   DTS="meson-axg-jethome-jethub-j100.dts"
   CNAME="j100"
+  # Burn rootfs partition base is 132 MiB (verified on hardware: BL33 writes
+  # MBR p1 at sector 270336), same as j310 — slots land at 132/234 MiB
+  RECOVERY_PREPAD_MB=0
 elif [[ "$2" == "d2" || "$2" == "j200" ]]; then
   DTS="meson-sm1-jethome-jethub-j200.dts"
   CNAME="j200"
@@ -32,6 +35,8 @@ elif [[ "$2" == "j310" ]]; then
   DTS="meson-s7-jethub-j310.dts"
   CNAME="j310"
   SOC_FAMILY="s7"
+  # Burn rootfs partition base is already 132 MiB (CONFIG_MBR_ROOTFS_OFFSET_EXTRA)
+  RECOVERY_PREPAD_MB=0
 else
   echo "ERROR: unknown controller"
   exit
@@ -61,6 +66,8 @@ if [[ "$SOC_FAMILY" == "s7" ]]; then
     UBOOT=""
 elif [[ -e "$5" ]]; then
     UBOOT="$5"
+elif [[ -e "bins/$CNAME/u-boot.bin" ]]; then
+    UBOOT="bins/$CNAME/u-boot.bin"
 else
     echo "Error: u-boot binary did not found"
     exit 1
@@ -111,19 +118,27 @@ while read -r line; do
     i=$((i + 1))
 done <<< "$FDISK"
 
-# For s7 armbian: prepend 2x 102 MiB recovery slots before ext4 rootfs so
-# that the on-chip layout matches CONFIG_MBR_ROOTFS_OFFSET_EXTRA (204 MiB) in
-# u-boot. Final part-1.img = recovery_a + recovery_b + ext4.
-if [[ "$3" == "armbian" && "$SOC_FAMILY" == "s7" && -e "bins/$CNAME/recovery.fit" ]]; then
+if [[ "$3" == "armbian" && -n "$RECOVERY_PREPAD_MB" ]]; then
+    RECOVERY_IMG=$(ensure_recovery_fit "$CNAME") || { echo "ERROR: no recovery.fit for $CNAME"; exit 1; }
     SLOT_BYTES=$((102 * 1024 * 1024))
-    echo "Prepending 2x recovery.fit (102 MiB each) to rootfs"
-    cp "bins/$CNAME/recovery.fit" "$TMP/recovery_a.bin"
-    cp "bins/$CNAME/recovery.fit" "$TMP/recovery_b.bin"
+    FIT_BYTES=$(stat -c%s "$RECOVERY_IMG")
+    if [[ "$FIT_BYTES" -gt "$SLOT_BYTES" ]]; then
+        echo "ERROR: recovery.fit is ${FIT_BYTES} bytes, does not fit the ${SLOT_BYTES} byte slot"
+        exit 1
+    fi
+    echo "Prepending 2x recovery.fit (102 MiB each, pad ${RECOVERY_PREPAD_MB} MiB) to rootfs"
+    cp "$RECOVERY_IMG" "$TMP/recovery_a.bin"
+    cp "$RECOVERY_IMG" "$TMP/recovery_b.bin"
     truncate -s $SLOT_BYTES "$TMP/recovery_a.bin"
     truncate -s $SLOT_BYTES "$TMP/recovery_b.bin"
-    cat "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/part-1.img" > "$TMP/part-1.img.new"
+    PREPAD=""
+    if [[ "$RECOVERY_PREPAD_MB" -gt 0 ]]; then
+        truncate -s $((RECOVERY_PREPAD_MB * 1024 * 1024)) "$TMP/recovery_pad.bin"
+        PREPAD="$TMP/recovery_pad.bin"
+    fi
+    cat $PREPAD "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/part-1.img" > "$TMP/part-1.img.new"
     mv "$TMP/part-1.img.new" "$TMP/part-1.img"
-    rm "$TMP/recovery_a.bin" "$TMP/recovery_b.bin"
+    rm -f "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/recovery_pad.bin"
 fi
 
 cp "bins/$CNAME/platform.conf" "$TMP"

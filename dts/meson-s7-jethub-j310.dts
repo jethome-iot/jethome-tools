@@ -6,7 +6,7 @@
 /dts-v1/;
 
 #include "meson-s7.dtsi"
-#include "partition_normal_linux.dtsi"
+#include "partition.dtsi"
 
 / {
 	amlogic-dt-id = "s7_s905y5_j310";
@@ -18,16 +18,11 @@
 	aliases {
 		serial0 = &uart_B;
 		serial1 = &uart_A;
-		serial2 = &uart_C;
-		serial3 = &uart_D;
-		serial4 = &uart_E;
 		i2c0 = &i2c0;
 		i2c1 = &i2c1;
 		i2c2 = &i2c2;
 		i2c3 = &i2c3;
 		i2c4 = &i2c4;
-		spi0 = &spifc;
-		spi1 = &spicc0;
 		tsensor0 = &p_tsensor;
 	};
 
@@ -174,7 +169,6 @@
 	};
 
 	/*
-	 * SD card IO voltage, switched via TPS2116 power mux:
 	 *   PR1 = HIGH -> 3.3V (default speed / init)
 	 *   PR1 = LOW  -> 1.8V (UHS-I signaling)
 	 * PR1 is driven by GPIOH_6
@@ -182,12 +176,16 @@
 	vqmmc_sd: regulator-vqmmc-sd {
 		compatible = "regulator-gpio";
 		regulator-name = "VQMMC_SD";
+		vin-supply = <&vddao_3v3>;
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <3300000>;
 
 		gpios = <&gpio GPIOH_6 GPIO_ACTIVE_HIGH>;
+		gpios-states = <1>;	/* boots high -> 3.3V, matches the R11 pull-up */
 		states = <3300000 1>,	/* GPIOH_6 HIGH -> PR1 HIGH -> 3.3V */
 			 <1800000 0>;	/* GPIOH_6 LOW  -> PR1 LOW  -> 1.8V */
+
+		regulator-settling-time-us = <10000>;
 
 		regulator-boot-on;
 	};
@@ -288,7 +286,16 @@
 
 &crg_otg {
 	status = "okay";
-	controller-type = <1>; /* 0~3: normal, host, device, otg */
+	controller-type = <1>;
+};
+
+&gpio {
+	usb_vbus_hog {
+		gpio-hog;
+		gpios = <GPIOZ_3 GPIO_ACTIVE_LOW>;
+		output-high;
+		line-name = "USB_PWR_ON_PU";
+	};
 };
 
 &crg_drd {
@@ -313,10 +320,17 @@
 
 	bus-width = <4>;
 	cap-sd-highspeed;
-	max-frequency = <50000000>;
+	sd-uhs-sdr12;
+	sd-uhs-sdr25;
+	sd-uhs-sdr50;
+	sd-uhs-sdr104;
+	max-frequency = <200000000>;
 	disable-wp;
 
 	cd-gpios = <&gpio GPIOC_6 GPIO_ACTIVE_HIGH>;
+
+	vmmc-supply = <&vddao_3v3>;
+	vqmmc-supply = <&vqmmc_sd>;
 };
 
 &sd_emmc_c {
@@ -349,16 +363,22 @@
 		vcc-supply = <&vddao_3v3>;
 	};
 
-
-
 	exp21: gpio@21 {
 		compatible = "ti,tca6408";
 		reg = <0x21>;
 		gpio-controller;
 		#gpio-cells = <2>;
 
-		//Add later
-		//gpio-line-names =
+		gpio-line-names =
+			"UXM1_RESET", "UXM1_MODE",
+			"UXM2_RESET", "UXM2_MODE",
+			"UXM3_RESET", "UXM3_MODE",
+			"UXM4_RESET", "UXM4_MODE";
+	};
+
+	onewire: ds2482@18 {
+		compatible = "maxim,ds2482";
+		reg = <0x18>;
 	};
 };
 
