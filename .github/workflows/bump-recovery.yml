@@ -1,0 +1,65 @@
+name: Bump recovery version
+run-name: ${{ github.event.client_payload.tag }}
+
+on:
+  repository_dispatch:
+    types: [recovery-release]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bump-recovery
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.client_payload.tag }}
+      SHA_J100: ${{ github.event.client_payload.sha_j100 }}
+      SHA_J310: ${{ github.event.client_payload.sha_j310 }}
+      BRANCH: ${{ github.event.client_payload.branch || 'convert_jhos' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.client_payload.branch || 'convert_jhos' }}
+
+      - name: Rewrite RECOVERY_* in lib.sh
+        run: |
+          set -euo pipefail
+
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::bad tag '$TAG'"; exit 1; }
+          for b in J100 J310; do
+            eval "sha=\$SHA_$b"
+            [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "::error::bad sha for $b: '$sha'"; exit 1; }
+          done
+
+          # Rewrite whole lines to a canonical form; matching the ${VAR:-default}
+          # expansion in place would need far more escaping for no benefit.
+          sed -i "s|^RECOVERY_VERSION=.*|RECOVERY_VERSION=\"\${RECOVERY_VERSION:-$TAG}\"|" lib.sh
+          for b in J100 J310; do
+            eval "sha=\$SHA_$b"
+            sed -i "s|^RECOVERY_SHA256_$b=.*|RECOVERY_SHA256_$b=\"\${RECOVERY_SHA256_$b:-$sha}\"|" lib.sh
+          done
+
+          # A sed that matched nothing is the classic silent failure here.
+          grep -q "RECOVERY_VERSION:-$TAG}" lib.sh || { echo "::error::RECOVERY_VERSION not rewritten"; exit 1; }
+          for b in J100 J310; do
+            eval "sha=\$SHA_$b"
+            grep -q "RECOVERY_SHA256_$b:-$sha}" lib.sh || { echo "::error::RECOVERY_SHA256_$b not rewritten"; exit 1; }
+          done
+
+          bash -n lib.sh || { echo "::error::lib.sh is no longer valid bash"; exit 1; }
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "$BRANCH is already at $TAG, nothing to do"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "recovery: bump to $TAG"
+          git push origin "HEAD:$BRANCH"
