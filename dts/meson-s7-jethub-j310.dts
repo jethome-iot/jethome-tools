@@ -348,7 +348,7 @@
 };
 
 &i2c2 {
-	status = "okay";
+    status = "okay";
     pinctrl-names = "default";
     pinctrl-0 = <&i2c2_pins2>;
     clock-frequency = <400000>;
@@ -441,6 +441,13 @@
 			"JOY_UP", "JOY_DOWN", "JOY_LEFT", "JOY_RIGHT",
 			"JOY_CENTER", "JOY_HOME", "JOY_BACK", "";
 	};
+};
+
+&i2c4 {
+	status = "okay";
+	pinctrl-names = "default";
+	pinctrl-0 = <&i2c4_pins2>;
+	clock-frequency = <400000>;
 };
 
 &ethmac {
