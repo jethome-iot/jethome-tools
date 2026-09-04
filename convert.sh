@@ -46,16 +46,15 @@ if [[ "$3" == "haos" ]]; then
   DTI="partition_haos.dtsi"
   CPART="haos"
 elif [[ "$3" == "armbian" ]]; then
-  if [[ "$SOC_FAMILY" == "s7" ]]; then
-    DTI="partition_arm_j310.dtsi"
-    CPART="armbian.s7"
-  else
-    DTI="partition_arm.dtsi"
-    CPART="armbian"
-  fi
+  DTI="partition_arm.dtsi"
+  CPART="armbian"
 else
   echo "ERROR: unknown partition table"
   exit
+fi
+
+if [[ "$SOC_FAMILY" == "s7" ]]; then
+  CPART="${CPART}.s7"
 fi
 
 if [[ "$4" == "compress" ]]; then
