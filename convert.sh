@@ -105,7 +105,7 @@ sed -i "s/partition.dtsi/$DTI/g" "$TMP/$DTS"
 
 cpp -nostdinc -I dts -I dts/include -undef -x assembler-with-cpp "$TMP/$DTS" "$TMP/$DTS.preprocess"
 dtc -I dts -O dtb -p 0x1000 -qqq "$TMP/$DTS.preprocess" -o "$DTB"
-FDISK=$(/usr/sbin/fdisk -l "$INPUT" | grep -P -A 100 "Device.+Boot.+Start.+End.+Sectors.+Size.+Id.+Type" | sed -- "s/\*//g" | grep "$INPUT"| grep -v Extended)
+FDISK=$(/usr/sbin/fdisk -l "$INPUT" | grep -P -A 100 "Device.+Boot.+Start.+End.+Sectors.+Size.+Id.+Type" | sed -- "s/\*//g" | grep "$INPUT"| grep -viE "extended|ext'd")
 
 echo +! Device	! Start	! End	! Sectors	! Size	! Id	! Type	!-
 i=1
