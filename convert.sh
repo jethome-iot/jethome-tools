@@ -43,7 +43,11 @@ else
 fi
 
 if [[ "$3" == "haos" ]]; then
-  DTI="partition_haos.dtsi"
+  if [[ "$SOC_FAMILY" == "s7" ]]; then
+    DTI="partition_haos_s7.dtsi"
+  else
+    DTI="partition_haos.dtsi"
+  fi
   CPART="haos"
 elif [[ "$3" == "armbian" ]]; then
   DTI="partition_arm.dtsi"
@@ -138,6 +142,27 @@ if [[ "$3" == "armbian" && -n "$RECOVERY_PREPAD_MB" ]]; then
     cat $PREPAD "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/part-1.img" > "$TMP/part-1.img.new"
     mv "$TMP/part-1.img.new" "$TMP/part-1.img"
     rm -f "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/recovery_pad.bin"
+elif [[ "$3" == "haos" && "$SOC_FAMILY" == "s7" ]]; then
+    SLOT_BYTES=$((102 * 1024 * 1024))
+    if RECOVERY_IMG=$(ensure_recovery_fit "$CNAME"); then
+        FIT_BYTES=$(stat -c%s "$RECOVERY_IMG")
+        if [[ "$FIT_BYTES" -gt "$SLOT_BYTES" ]]; then
+            echo "ERROR: recovery.fit is ${FIT_BYTES} bytes, does not fit the ${SLOT_BYTES} byte slot"
+            exit 1
+        fi
+        echo "Prepending 2x recovery.fit (102 MiB each) to boothaos"
+        cp "$RECOVERY_IMG" "$TMP/recovery_a.bin"
+        cp "$RECOVERY_IMG" "$TMP/recovery_b.bin"
+    else
+        echo "WARNING: no recovery.fit for $CNAME, reserving the 204 MiB window empty"
+        : > "$TMP/recovery_a.bin"
+        : > "$TMP/recovery_b.bin"
+    fi
+    truncate -s $SLOT_BYTES "$TMP/recovery_a.bin"
+    truncate -s $SLOT_BYTES "$TMP/recovery_b.bin"
+    cat "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/part-1.img" > "$TMP/part-1.img.new"
+    mv "$TMP/part-1.img.new" "$TMP/part-1.img"
+    rm -f "$TMP/recovery_a.bin" "$TMP/recovery_b.bin"
 fi
 
 cp "bins/$CNAME/platform.conf" "$TMP"

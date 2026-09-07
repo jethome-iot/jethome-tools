@@ -1,0 +1,77 @@
+/*
+ * HAOS layout for s7 boards (j310, j300).
+ *
+ * Same as partition_haos.dtsi, except boothaos is declared 204 MiB larger.
+ * Those boards define CONFIG_MBR_ROOTFS_OFFSET_EXTRA, so U-Boot shifts every
+ * partition offset in the generated MBR by 204 MiB while the burn tool still
+ * writes at the unshifted offsets. convert.sh therefore prepends a 204 MiB
+ * window (the two raw recovery slots) to the boothaos payload, and the
+ * partition has to be big enough to hold window + boot.vfat or the write
+ * would run into overlay.
+ *
+ *   132 MiB  inherent Amlogic areas
+ *   132..234 recovery slot A      \
+ *   234..336 recovery slot B       > boothaos payload, 228 MiB total
+ *   336..360 boot.vfat            /   <- MBR partition 1 starts here
+ */
+/ {
+	partitions: partitions {
+		parts = <0x08>;
+		part-0 = <&boothaos>;
+		part-1 = <&overlay>;
+		part-2 = <&kernela>;
+		part-3 = <&systema>;
+		part-4 = <&kernelb>;
+		part-5 = <&systemb>;
+		part-6 = <&bootinfo>;
+		part-7 = <&data>;
+
+		boothaos: boothaos {
+			pname = "boothaos";
+			size = <0x00 0xE400000>;
+			mask = <0x01>;
+		};
+
+		overlay: overlay {
+			pname = "overlay";
+			size = <0x00 0x6000000>;
+			mask = <0x04>;
+		};
+
+		data: data {
+			pname = "data";
+			size = <0xffffffff 0xffffffff>;
+			mask = <0x04>;
+		};
+
+		kernela: kernela {
+			pname = "kernela";
+			size = <0x00 0x1800000>;
+			mask = <0x04>;
+		};
+
+		systema: systema {
+			pname = "systema";
+			size = <0x00 0x10000000>;
+			mask = <0x04>;
+		};
+
+		kernelb: kernelb {
+			pname = "kernelb";
+			size = <0x00 0x1800000>;
+			mask = <0x04>;
+		};
+
+		systemb: systemb {
+			pname = "systemb";
+			size = <0x00 0x10000000>;
+			mask = <0x04>;
+		};
+
+		bootinfo: bootinfo {
+			pname = "bootinfo";
+			size = <0x00 0x800000>;
+			mask = <0x04>;
+		};
+	};
+};
