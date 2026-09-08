@@ -61,6 +61,16 @@ if [[ "$SOC_FAMILY" == "s7" ]]; then
   CPART="${CPART}.s7"
 fi
 
+# HAOS on s7 is GPT: the vendor U-Boot's fill_ept_by_gpt() builds the Amlogic
+# partition table straight from the GPT entries, so partition NAMES are what the
+# burn addresses, and the table itself ships as its own "gpt" item. Armbian stays
+# on MBR -- it boots from SD, where the signed bootloader occupies LBA 1 onward
+# and would overwrite the GPT header and entry array.
+GPT_MODE=no
+if [[ "$3" == "haos" && "$SOC_FAMILY" == "s7" ]]; then
+  GPT_MODE=yes
+fi
+
 if [[ "$4" == "compress" ]]; then
     COMPRESS=yes
 fi
@@ -109,60 +119,75 @@ sed -i "s/partition.dtsi/$DTI/g" "$TMP/$DTS"
 
 cpp -nostdinc -I dts -I dts/include -undef -x assembler-with-cpp "$TMP/$DTS" "$TMP/$DTS.preprocess"
 dtc -I dts -O dtb -p 0x1000 -qqq "$TMP/$DTS.preprocess" -o "$DTB"
-FDISK=$(/usr/sbin/fdisk -l "$INPUT" | grep -P -A 100 "Device.+Boot.+Start.+End.+Sectors.+Size.+Id.+Type" | sed -- "s/\*//g" | grep "$INPUT"| grep -viE "extended|ext'd")
+if [[ "$GPT_MODE" == "yes" ]]; then
 
-echo +! Device	! Start	! End	! Sectors	! Size	! Id	! Type	!-
-i=1
-while read -r line; do
-    read -r Device Start End Sectors Size Id Type <<<$line
-    Device=$(echo $(basename $Device) | sed --  "s/$(basename $INPUT)//g")
-    echo +! $Device	! $Start	! $End	! $Sectors	! $Size	! $Id	! $Type	!-
-    extract_partition "$INPUT" $Start $Sectors "$TMP/part-$i.img"
-    i=$((i + 1))
-done <<< "$FDISK"
+    dd if="$INPUT" of="$TMP/gpt.bin" bs=512 count=34 status=none
+    echo "Extracted gpt.bin ($(stat -c%s "$TMP/gpt.bin") bytes)"
+    echo "+! Partition          ! Start      ! Sectors    !-"
+    while read -r pname pstart psize; do
+        printf '+! %-18s ! %-10s ! %-10s !-\n' "$pname" "$pstart" "$psize"
+        extract_partition "$INPUT" "$pstart" "$psize" "$TMP/$pname.img" \
+            || { echo "ERROR: failed to extract $pname"; exit 1; }
+    done < <(/usr/sbin/sfdisk -J "$INPUT" \
+        | jq -r '.partitiontable.partitions[]
+                 | select(.name != null and (.name | startswith("hassos-")))
+                 | "\(.name) \(.start) \(.size)"')
+else
+    FDISK=$(/usr/sbin/fdisk -l "$INPUT" | grep -P -A 100 "Device.+Boot.+Start.+End.+Sectors.+Size.+Id.+Type" | sed -- "s/\*//g" | grep "$INPUT"| grep -viE "extended|ext'd")
 
-if [[ "$3" == "armbian" && -n "$RECOVERY_PREPAD_MB" ]]; then
-    RECOVERY_IMG=$(ensure_recovery_fit "$CNAME") || { echo "ERROR: no recovery.fit for $CNAME"; exit 1; }
-    SLOT_BYTES=$((102 * 1024 * 1024))
-    FIT_BYTES=$(stat -c%s "$RECOVERY_IMG")
-    if [[ "$FIT_BYTES" -gt "$SLOT_BYTES" ]]; then
-        echo "ERROR: recovery.fit is ${FIT_BYTES} bytes, does not fit the ${SLOT_BYTES} byte slot"
-        exit 1
-    fi
-    echo "Prepending 2x recovery.fit (102 MiB each, pad ${RECOVERY_PREPAD_MB} MiB) to rootfs"
-    cp "$RECOVERY_IMG" "$TMP/recovery_a.bin"
-    cp "$RECOVERY_IMG" "$TMP/recovery_b.bin"
-    truncate -s $SLOT_BYTES "$TMP/recovery_a.bin"
-    truncate -s $SLOT_BYTES "$TMP/recovery_b.bin"
-    PREPAD=""
-    if [[ "$RECOVERY_PREPAD_MB" -gt 0 ]]; then
-        truncate -s $((RECOVERY_PREPAD_MB * 1024 * 1024)) "$TMP/recovery_pad.bin"
-        PREPAD="$TMP/recovery_pad.bin"
-    fi
-    cat $PREPAD "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/part-1.img" > "$TMP/part-1.img.new"
-    mv "$TMP/part-1.img.new" "$TMP/part-1.img"
-    rm -f "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/recovery_pad.bin"
-elif [[ "$3" == "haos" && "$SOC_FAMILY" == "s7" ]]; then
-    SLOT_BYTES=$((102 * 1024 * 1024))
-    if RECOVERY_IMG=$(ensure_recovery_fit "$CNAME"); then
+    echo +! Device	! Start	! End	! Sectors	! Size	! Id	! Type	!-
+    i=1
+    while read -r line; do
+        read -r Device Start End Sectors Size Id Type <<<$line
+        Device=$(echo $(basename $Device) | sed --  "s/$(basename $INPUT)//g")
+        echo +! $Device	! $Start	! $End	! $Sectors	! $Size	! $Id	! $Type	!-
+        extract_partition "$INPUT" $Start $Sectors "$TMP/part-$i.img"
+        i=$((i + 1))
+    done <<< "$FDISK"
+
+    if [[ "$3" == "armbian" && -n "$RECOVERY_PREPAD_MB" ]]; then
+        RECOVERY_IMG=$(ensure_recovery_fit "$CNAME") || { echo "ERROR: no recovery.fit for $CNAME"; exit 1; }
+        SLOT_BYTES=$((102 * 1024 * 1024))
         FIT_BYTES=$(stat -c%s "$RECOVERY_IMG")
         if [[ "$FIT_BYTES" -gt "$SLOT_BYTES" ]]; then
             echo "ERROR: recovery.fit is ${FIT_BYTES} bytes, does not fit the ${SLOT_BYTES} byte slot"
             exit 1
         fi
-        echo "Prepending 2x recovery.fit (102 MiB each) to boothaos"
+        echo "Prepending 2x recovery.fit (102 MiB each, pad ${RECOVERY_PREPAD_MB} MiB) to rootfs"
         cp "$RECOVERY_IMG" "$TMP/recovery_a.bin"
         cp "$RECOVERY_IMG" "$TMP/recovery_b.bin"
-    else
-        echo "WARNING: no recovery.fit for $CNAME, reserving the 204 MiB window empty"
-        : > "$TMP/recovery_a.bin"
-        : > "$TMP/recovery_b.bin"
+        truncate -s $SLOT_BYTES "$TMP/recovery_a.bin"
+        truncate -s $SLOT_BYTES "$TMP/recovery_b.bin"
+        PREPAD=""
+        if [[ "$RECOVERY_PREPAD_MB" -gt 0 ]]; then
+            truncate -s $((RECOVERY_PREPAD_MB * 1024 * 1024)) "$TMP/recovery_pad.bin"
+            PREPAD="$TMP/recovery_pad.bin"
+        fi
+        cat $PREPAD "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/part-1.img" > "$TMP/part-1.img.new"
+        mv "$TMP/part-1.img.new" "$TMP/part-1.img"
+        rm -f "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/recovery_pad.bin"
+    elif [[ "$3" == "haos" && "$SOC_FAMILY" == "s7" ]]; then
+        SLOT_BYTES=$((102 * 1024 * 1024))
+        if RECOVERY_IMG=$(ensure_recovery_fit "$CNAME"); then
+            FIT_BYTES=$(stat -c%s "$RECOVERY_IMG")
+            if [[ "$FIT_BYTES" -gt "$SLOT_BYTES" ]]; then
+                echo "ERROR: recovery.fit is ${FIT_BYTES} bytes, does not fit the ${SLOT_BYTES} byte slot"
+                exit 1
+            fi
+            echo "Prepending 2x recovery.fit (102 MiB each) to boothaos"
+            cp "$RECOVERY_IMG" "$TMP/recovery_a.bin"
+            cp "$RECOVERY_IMG" "$TMP/recovery_b.bin"
+        else
+            echo "WARNING: no recovery.fit for $CNAME, reserving the 204 MiB window empty"
+            : > "$TMP/recovery_a.bin"
+            : > "$TMP/recovery_b.bin"
+        fi
+        truncate -s $SLOT_BYTES "$TMP/recovery_a.bin"
+        truncate -s $SLOT_BYTES "$TMP/recovery_b.bin"
+        cat "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/part-1.img" > "$TMP/part-1.img.new"
+        mv "$TMP/part-1.img.new" "$TMP/part-1.img"
+        rm -f "$TMP/recovery_a.bin" "$TMP/recovery_b.bin"
     fi
-    truncate -s $SLOT_BYTES "$TMP/recovery_a.bin"
-    truncate -s $SLOT_BYTES "$TMP/recovery_b.bin"
-    cat "$TMP/recovery_a.bin" "$TMP/recovery_b.bin" "$TMP/part-1.img" > "$TMP/part-1.img.new"
-    mv "$TMP/part-1.img.new" "$TMP/part-1.img"
-    rm -f "$TMP/recovery_a.bin" "$TMP/recovery_b.bin"
 fi
 
 cp "bins/$CNAME/platform.conf" "$TMP"
