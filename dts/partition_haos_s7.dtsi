@@ -1,31 +1,24 @@
 /*
- * HAOS layout for s7 boards (j310, j300).
- *
- * Same as partition_haos.dtsi, except boothaos is declared 204 MiB larger.
- * Those boards define CONFIG_MBR_ROOTFS_OFFSET_EXTRA, so U-Boot shifts every
- * partition offset in the generated MBR by 204 MiB while the burn tool still
- * writes at the unshifted offsets. convert.sh therefore prepends a 204 MiB
- * window (the two raw recovery slots) to the boothaos payload, and the
- * partition has to be big enough to hold window + boot.vfat or the write
- * would run into overlay.
- *
- *   132 MiB  inherent Amlogic areas
- *   132..234 recovery slot A      \
- *   234..336 recovery slot B       > boothaos payload, 228 MiB total
- *   336..360 boot.vfat            /   <- MBR partition 1 starts here
+ * HAOS layout for s7 boards (j310).
  */
 / {
 	partitions: partitions {
-		parts = <0x08>;
+		parts = <0x09>;
 		part-0 = <&boothaos>;
 		part-1 = <&overlay>;
-		part-2 = <&kernela>;
-		part-3 = <&systema>;
-		part-4 = <&kernelb>;
-		part-5 = <&systemb>;
-		part-6 = <&bootinfo>;
-		part-7 = <&data>;
+		part-2 = <&spare>;
+		part-3 = <&kernela>;
+		part-4 = <&systema>;
+		part-5 = <&kernelb>;
+		part-6 = <&systemb>;
+		part-7 = <&bootinfo>;
+		part-8 = <&data>;
 
+		spare: spare {
+			pname = "spare";
+			size = <0x00 0x800000>;
+			mask = <0x04>;
+		};
 		boothaos: boothaos {
 			pname = "boothaos";
 			size = <0x00 0xE400000>;
