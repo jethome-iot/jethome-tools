@@ -4,10 +4,10 @@ source lib.sh
 
 if [ $# -lt 3 ]; then
     echo Usage:
-    echo "	$0 <input> <h1|d1> <type> [compress uboot]"
+    echo "	$0 <input> <board> <type> [compress uboot]"
     echo
     echo "		input		- input image"
-    echo "		h1|d1|d2|j80|j100|j200|j310|cma	- select controller"
+    echo "		board		- h1|d1|d2|j80|j100|j200|j310|cma"
     echo "		type		- partition type. supported: haos, armbian"
     echo "		compress	- 'compress' or 'no' output to zip"
     echo "		uboot		- path to u-boot binary (ignored for j310)"
@@ -61,11 +61,7 @@ if [[ "$SOC_FAMILY" == "s7" ]]; then
   CPART="${CPART}.s7"
 fi
 
-# HAOS on s7 is GPT: the vendor U-Boot's fill_ept_by_gpt() builds the Amlogic
-# partition table straight from the GPT entries, so partition NAMES are what the
-# burn addresses, and the table itself ships as its own "gpt" item. Armbian stays
-# on MBR -- it boots from SD, where the signed bootloader occupies LBA 1 onward
-# and would overwrite the GPT header and entry array.
+# HAOS on s7 (j310) is GPT
 GPT_MODE=no
 if [[ "$3" == "haos" && "$SOC_FAMILY" == "s7" ]]; then
   GPT_MODE=yes
@@ -132,6 +128,24 @@ if [[ "$GPT_MODE" == "yes" ]]; then
         | jq -r '.partitiontable.partitions[]
                  | select(.name != null and (.name | startswith("hassos-")))
                  | "\(.name) \(.start) \(.size)"')
+
+    if RECOVERY_IMG=$(ensure_recovery_fit "$CNAME"); then
+        SLOT_BYTES=$((102 * 1024 * 1024))
+        FIT_BYTES=$(stat -c%s "$RECOVERY_IMG")
+        if [[ "$FIT_BYTES" -gt "$SLOT_BYTES" ]]; then
+            echo "ERROR: recovery.fit is ${FIT_BYTES} bytes, does not fit the ${SLOT_BYTES} byte slot"
+            exit 1
+        fi
+        cp "$RECOVERY_IMG" "$TMP/recovery_a.img"
+        cp "$RECOVERY_IMG" "$TMP/recovery_b.img"
+        ALIGNED=$(( (FIT_BYTES + 511) / 512 * 512 ))
+        truncate -s "$ALIGNED" "$TMP/recovery_a.img"
+        truncate -s "$ALIGNED" "$TMP/recovery_b.img"
+        RECOVERY_ITEMS=yes
+        echo "Recovery: $(basename "$RECOVERY_IMG") -> recovery_a, recovery_b"
+    else
+        echo "WARNING: no recovery.fit for $CNAME, recovery slots left empty"
+    fi
 else
     FDISK=$(/usr/sbin/fdisk -l "$INPUT" | grep -P -A 100 "Device.+Boot.+Start.+End.+Sectors.+Size.+Id.+Type" | sed -- "s/\*//g" | grep "$INPUT"| grep -viE "extended|ext'd")
 
@@ -196,6 +210,10 @@ cc -o $TMP/dtbTool dtbtools/dtbTool.c
 $TMP/dtbTool -o "$TMP/_aml_dtb.PARTITION" "$TMP"
 
 cp "bins/image.$CPART.cfg" "$TMP/image.cfg"
+if [[ "$RECOVERY_ITEMS" == "yes" ]]; then
+    sed -i "/^\[LIST_VERIFY\]/i file=\"recovery_a.img\"\tmain_type=\"PARTITION\"\tsub_type=\"recovery_a\"" "$TMP/image.cfg"
+    sed -i "/^\[LIST_VERIFY\]/i file=\"recovery_b.img\"\tmain_type=\"PARTITION\"\tsub_type=\"recovery_b\"" "$TMP/image.cfg"
+fi
 if [[ "$SOC_FAMILY" == "s7" ]]; then
     cp "bins/$CNAME/u-boot.bin" "$TMP/"
     cp "bins/$CNAME/u-boot.bin.sd.bin" "$TMP/"
