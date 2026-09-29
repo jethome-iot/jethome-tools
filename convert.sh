@@ -72,7 +72,21 @@ if [[ "$4" == "compress" ]]; then
 fi
 
 if [[ "$SOC_FAMILY" == "s7" ]]; then
+    # The s7 bootloader is three signed files, not one, so take the whole set
+    # from wherever the passed u-boot.bin lives -- that is the freshly built
+    # and FIP-signed one from the OS build. Fall back to the bundled binaries
+    # when the caller passes nothing or the set is incomplete.
     UBOOT=""
+    UBOOT_DIR="bins/$CNAME"
+    if [[ -e "$5" ]]; then
+        BUILD_UBOOT_DIR="$(dirname "$(readlink -f "$5")")"
+        if [[ -e "$BUILD_UBOOT_DIR/u-boot.bin.sd.bin" && -e "$BUILD_UBOOT_DIR/u-boot.bin.usb" ]]; then
+            UBOOT_DIR="$BUILD_UBOOT_DIR"
+        else
+            echo "WARNING: $BUILD_UBOOT_DIR has no u-boot.bin.sd.bin/u-boot.bin.usb, using bins/$CNAME"
+        fi
+    fi
+    echo "UBOOT_DIR set to ${UBOOT_DIR}"
 elif [[ -e "$5" ]]; then
     UBOOT="$5"
 elif [[ -e "bins/$CNAME/u-boot.bin" ]]; then
@@ -215,9 +229,9 @@ if [[ "$RECOVERY_ITEMS" == "yes" ]]; then
     sed -i "/^\[LIST_VERIFY\]/i file=\"recovery_b.img\"\tmain_type=\"PARTITION\"\tsub_type=\"recovery_b\"" "$TMP/image.cfg"
 fi
 if [[ "$SOC_FAMILY" == "s7" ]]; then
-    cp "bins/$CNAME/u-boot.bin" "$TMP/"
-    cp "bins/$CNAME/u-boot.bin.sd.bin" "$TMP/"
-    cp "bins/$CNAME/u-boot.bin.usb" "$TMP/"
+    cp "$UBOOT_DIR/u-boot.bin" "$TMP/"
+    cp "$UBOOT_DIR/u-boot.bin.sd.bin" "$TMP/"
+    cp "$UBOOT_DIR/u-boot.bin.usb" "$TMP/"
     cp "bins/$CNAME/usb_flow.aml" "$TMP/"
     PACKER="./tools/aml_image_v2_packer_new.s7"
 else
