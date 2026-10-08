@@ -48,7 +48,7 @@ ensure_recovery_fit() {
 	fi
 
 	case "$board" in
-		j100) asset="recovery-j100-$RECOVERY_VERSION.fit"; sha="$RECOVERY_SHA256_J100" ;;
+		#j100) asset="recovery-j100-$RECOVERY_VERSION.fit"; sha="$RECOVERY_SHA256_J100" ;;
 		j310) asset="recovery-j310-$RECOVERY_VERSION.fit"; sha="$RECOVERY_SHA256_J310" ;;
 		*)
 			if [[ -e "$local_fit" ]]; then

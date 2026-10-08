@@ -22,9 +22,6 @@ if [[ "$2" == "h1" || "$2" == "j80" ]]; then
 elif [[ "$2" == "d1" || "$2" == "j100" ]]; then
   DTS="meson-axg-jethome-jethub-j100.dts"
   CNAME="j100"
-  # Burn rootfs partition base is 132 MiB (verified on hardware: BL33 writes
-  # MBR p1 at sector 270336), same as j310 — slots land at 132/234 MiB
-  RECOVERY_PREPAD_MB=0
 elif [[ "$2" == "d2" || "$2" == "j200" ]]; then
   DTS="meson-sm1-jethome-jethub-j200.dts"
   CNAME="j200"
